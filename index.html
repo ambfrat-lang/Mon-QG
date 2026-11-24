@@ -606,11 +606,17 @@ function gmail(r) {
 }
 
 /* ---------- Tâches ---------- */
-/* Illustration de la liste (img/<liste>.jpg) sur un fond doux de couleur, en attendant les illustrations Canva */
+/* Illustration de la liste (<liste>.jpg, à côté de index.html) sur un fond doux de couleur, en attendant les illustrations Canva */
 var FONDS = { asso_corse: 'var(--vert-soft)', asso_nice: 'var(--bleu-soft)', travail: 'var(--violet-soft)', these: 'var(--bleu-soft)', quotidien: 'var(--orange-soft)' };
 var IMGS = { asso_corse: 'aic', asso_nice: 'nice', travail: 'travail', these: 'these', quotidien: 'quotidien' };
-/* Image envoyée par le moteur (Drive) si disponible, sinon le fichier img/<nom>.jpg posé à côté de l'appli */
-function photo(k) { var u = S.img[IMGS[k]] || S.img[k] || (IMGS[k] ? 'img/' + IMGS[k] + '.jpg' : ''); return 'background-color:' + FONDS[k] + (u ? ';background-image:url(' + u + ')' : '') + (k === 'asso_nice' ? ';background-position:left 15%' : ''); }
+/* Image envoyée par le moteur (Drive) si disponible, sinon le fichier <nom>.jpg posé à côté de l'appli */
+/* Deux couches : l'image du Drive par-dessus, le fichier .jpg à côté de la page en dessous (visible si le Drive ne charge pas) */
+function photo(k) {
+  var c = [], d = S.img[IMGS[k]] || S.img[k], f = IMGS[k] ? IMGS[k] + '.jpg' : '';
+  if (d && /^(https?:|data:image\/)/i.test(d)) c.push("url('" + String(d).replace(/['"\\\n<>]/g, '') + "')");
+  if (f) c.push('url(' + f + ')');
+  return 'background-color:' + FONDS[k] + (c.length ? ';background-image:' + c.join(',') : '') + (k === 'asso_nice' ? ';background-position:left 15%' : '');
+}
 function rendreTaches() {
   if (S.cat) return rendreListe(S.cat);
   var a = aFaire(), h = '<div class="lists">';
