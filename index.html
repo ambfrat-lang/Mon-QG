@@ -365,6 +365,11 @@ function $(s) { return document.querySelector(s); }
 /* Texte du résumé : les **mots clés** écrits par Claude ressortent en gras */
 /* Lien venu d'un mail : seuls http(s) et # sont acceptés */
 function sur(u) { u = String(u || '').trim(); return /^https?:\/\//i.test(u) || u === '#' ? u : ''; }
+/* Pièce(s) jointe(s) : colonne piece_jointe, un ou plusieurs liens (séparés par un retour à la ligne, un espace ou « ; »). Rien si vide. */
+function pj(x) {
+  var l = String(x || '').split(/[\s;]+/).map(sur).filter(function (u) { return u && u !== '#'; });
+  return l.map(function (u, i) { return '<a class="btn small light" href="' + esc(u) + '" target="_blank" rel="noopener">📎 Pièce jointe' + (l.length > 1 ? ' ' + (i + 1) : '') + '</a>'; }).join('');
+}
 function riche(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>'); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 var LS = {
@@ -407,8 +412,29 @@ function normaliser(d) {
   d.meta = d.meta || {};
   d.taches.forEach(function (t) { if (ALIAS[t.categorie]) t.categorie = ALIAS[t.categorie]; });
   d.sections.forEach(function (x) { if (ALIAS[x.categorie]) x.categorie = ALIAS[x.categorie]; });
+  d.points.forEach(deduireEvt);
   return d;
 }
+/* Événement oublié par le moteur : une réunion, un RDV, une AG… avec une date écrite dans le mail
+   (« 4 décembre », « 4/12 ») et souvent une heure (« 10h », « 14 h 30 ») devient un événement de calendrier */
+var MOIS_RE = { janv: 0, janvier: 0, 'févr': 1, 'février': 1, fevr: 1, fevrier: 1, mars: 2, avr: 3, avril: 3, mai: 4, juin: 5, juil: 6, juillet: 6, 'août': 7, aout: 7, sept: 8, septembre: 8, oct: 9, octobre: 9, nov: 10, novembre: 10, 'déc': 11, 'décembre': 11, dec: 11, decembre: 11 };
+function deduireEvt(p) {
+  if (p.evt_debut) return;
+  var txt = [p.sujet, p.resume, p.action, p.demande].join(' ').replace(/\*\*/g, '');
+  if (!/r[ée]union|rendez-vous|\brdv\b|visio|rencontre|assembl[ée]e|\bAG\b|soir[ée]e|conf[ée]rence|s[ée]minaire|formation|webinaire|entretien|staff|cours\b|d[îi]ner|d[ée]jeuner|c[ée]r[ée]monie|congr[èe]s/i.test(txt)) return;
+  var j, m, an, x = txt.match(/\b(\d{1,2})(?:er)?\s+(janvier|janv|f[ée]vrier|f[ée]vr|mars|avril|avr|mai|juin|juillet|juil|ao[ûu]t|septembre|sept|octobre|oct|novembre|nov|d[ée]cembre|d[ée]c)\.?(?:\s+(20\d\d))?/i);
+  if (x) { j = +x[1]; m = MOIS_RE[x[2].toLowerCase()]; an = x[3] ? +x[3] : null; }
+  else if ((x = txt.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(20\d\d))?\b/))) { j = +x[1]; m = +x[2] - 1; an = x[3] ? +x[3] : null; }
+  if (j == null || m == null || m < 0 || m > 11 || j < 1 || j > 31) return;
+  if (!an) { var t = new Date(); an = t.getFullYear(); if (new Date(an, m, j) < new Date(t.getFullYear(), t.getMonth(), t.getDate() - 7)) an++; }
+  var d = an + '-' + ('0' + (m + 1)).slice(-2) + '-' + ('0' + j).slice(-2);
+  var h = txt.match(/\b([01]?\d|2[0-3])\s*h\s*([0-5]\d)?\b/i);
+  p.evt_debut = d + (h ? 'T' + ('0' + h[1]).slice(-2) + ':' + (h[2] || '00') : '');
+  p.evt_titre = p.evt_titre || String(p.sujet || '').replace(/\s+le\s+\d{1,2}(er)?\s+\S+(\s+20\d\d)?\s+(à|a)\s+\d{1,2}\s*h\s*\d{0,2}/i, ' ').replace(/\s+/g, ' ').trim();
+  if (!p.evt_lieu && /visio/i.test(txt)) p.evt_lieu = 'Visioconférence';
+  p.evt_auto = true;
+}
+
 /* Les illustrations des listes viennent du Drive (via le moteur), puis restent en cache sur l'appareil */
 var IMG_VERSION = '1';
 function chargerImages() {
@@ -498,7 +524,7 @@ function carte(p) {
     + prop.map(function (t) {
       return '<div class="propo"><span>Ajouter la tâche « ' + esc(t.titre) + ' » ?</span><button class="btn small" data-act="t-oui" data-id="' + esc(t.id) + '">Oui</button><button class="btn small light" data-act="t-non" data-id="' + esc(t.id) + '">Non</button></div>';
     }).join('')
-    + '<div class="acts">' + (sur(p.lien) ? '<a class="lien" href="' + esc(sur(p.lien)) + '" target="_blank" rel="noopener">Ouvrir le mail</a>' : '')
+    + '<div class="acts">' + (sur(p.lien) ? '<a class="lien" href="' + esc(sur(p.lien)) + '" target="_blank" rel="noopener">Ouvrir le mail</a>' : '') + pj(p.piece_jointe)
     + (rep.length ? '<a class="lien" href="#reponses">' + (rep.some(function (r) { return choixDe(r).length && !choisi(r); }) ? 'Réponse à choisir' : 'Réponse prête') + '</a>' : '') + '<span class="sp"></span>'
     + (p.statut === 'vu' ? '<span class="vu-ok">✓ Vu</span>' : '<button class="btn light" data-act="vu" data-id="' + esc(p.id) + '">Vu</button>') + '<button class="btn" data-act="fait" data-id="' + esc(p.id) + '">Traité</button></div></article>';
 }
@@ -542,6 +568,8 @@ function ics(points) {
     if (p.evt_lieu) L.push('LOCATION:' + echap(p.evt_lieu));
     L.push('DESCRIPTION:' + echap((p.resume || '').replace(/\*\*/g, '') + (p.lien ? '\n\nMail : ' + p.lien : '')));
     if (sur(p.lien)) L.push('URL:' + sur(p.lien));
+    /* Rappel la veille : même heure pour un rendez-vous, 9 h la veille pour une journée entière */
+    L.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + echap('Demain : ' + (p.evt_titre || p.sujet)), 'TRIGGER:' + (a.h ? '-P1D' : '-PT15H'), 'END:VALARM');
     L.push('END:VEVENT');
   });
   L.push('END:VCALENDAR');
@@ -598,7 +626,7 @@ function rendreReponses() {
       + (choixDe(r).length && !choisi(r) ? '' : '<div class="acts"><button class="btn" data-act="copier" data-id="' + esc(r.id) + '">Copier</button>'
       + (wa ? '<a class="btn light" href="https://wa.me/?text=' + encodeURIComponent(r.corps || '') + '" target="_blank" rel="noopener">WhatsApp</a>'
             : '<a class="btn light" href="' + gmail(r) + '" target="_blank" rel="noopener">Gmail</a>')
-      + '<span class="sp"></span><button class="btn light" data-act="ignorer" data-id="' + esc(r.id) + '">Ignorer</button><button class="btn light" data-act="envoye" data-id="' + esc(r.id) + '">Envoyé ✓</button></div>') + '</article>';
+      + pj(r.piece_jointe) + '<span class="sp"></span><button class="btn light" data-act="ignorer" data-id="' + esc(r.id) + '">Ignorer</button><button class="btn light" data-act="envoye" data-id="' + esc(r.id) + '">Envoyé ✓</button></div>') + '</article>';
   }).join('') + '</div>';
 }
 function gmail(r) {
